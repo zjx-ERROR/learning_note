@@ -32,7 +32,7 @@ type _type struct{
 ```
 data表示指向具体的实例数据，由于GoLang的参数传递规则为值传递，如果希望可以通过interface对实例数据修改，则需要传入指针，此时data指向的是指针的副本，但指针指向的实例地址不变，仍然可以对实例数据产生修改。
 ## iface
-iface表示non-empty interface的数据结构，非空接口初始化的过程就是初始化一个iface类型的结构，其中data的作用通eface的相同。
+iface表示non-empty interface的数据结构，非空接口初始化的过程就是初始化一个iface类型的结构，其中data的作用和eface的相同。
 ```go
 type iface struct{
     tab *itab
