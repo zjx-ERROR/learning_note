@@ -61,3 +61,18 @@ type imethod struct{
     ityp typeOff
 }
 ```
+interface type包含了一些关于interface本身的信息，比如package path，包含的method。上面提到的iface和eface是数据类型转换成interface之后的实体struct结构，而这里的interfacetype是定义interface的一种抽象表示。
+
+type表示具体化的类型，与eface的type类型相同。
+
+hash字段其实是对_type.hash的拷贝，它会在interface的实例化时，用于快速判断目标类型和接口中的类型是否一致。另外GoLang的interface的Duck-typing机制也是依赖这个字段来实现。
+
+fun字段其实是一个动态大小的数组，虽然声明时是固定大小为1但是在使用时会直接通过fun指针获取其中的数据，并且不会检查数组的边界，所以该数组中保存的元素数量是不确定的。
+
+## interface设计的优缺点
+- 优点
+
+    非侵入式设计，写起来更自由，无需显式实现，只要实现了与interface所包含的所有函数签名相同的方法即可。
+
+- 缺点
+    duck-typing风格并不关注接口的规则和含义，也没法检查，不确定某个struct具体实现了哪些interface。只能通过goru工具查看
