@@ -3,18 +3,18 @@
 
 ### pull
 ```
-docker 镜像 库名(:版本)
+docker pull 镜像(:版本)
 ```
 
 
 ### run
 ```
-docker run (-d#后台运行)(-p 80:80#端口映射) (--name 容器名) (-v 宿主目录:容器目录) 镜像
+docker run (-d#后台运行)(-p 80:80#端口映射) (--name 容器名) (-v 宿主目录:容器目录) (-d #后台运行) 镜像
 ```
 
 ### ps
 ```
-docker ps #查看正在运行的容器
+docker ps (-a #查看所有容器) (-q #返回正在运行容器id) (-qa #返回所有容器的id)#查看正在运行的容器
 ```
 
 ### exec
@@ -50,6 +50,11 @@ docker build
 ### inspect
 ```
 docker docker inspect
+```
+
+### load
+```
+docker load -i 镜像文件名 #加载镜像文件
 ```
 
 ## dockerfile基本格式
@@ -94,3 +99,4 @@ CMD shell
 ### ONBUILD
 
 ### SHELL
+
