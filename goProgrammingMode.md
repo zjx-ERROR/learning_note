@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-02-25 10:17:38
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-01 11:05:20
+ * @LastEditTime: 2021-03-01 17:54:20
  * @FilePath: /learning_note/goProgrammingMode.md
  * @Description: 
 -->
@@ -29,7 +29,9 @@ bar[1] = 99
 - 首先先创建一个foo的slice，其中的长度和容量都是5
 - 然后开始对foo所指向的数组中的索引为3和4的元素进行赋值
 - 对foo作切片后赋值给bar，再修改bar[1]
+
 ![1](img/goProgrammingMode/1.png)
+
 通过上图可以看出，因为foo和bar的内存是共享的，所以，foo和bar的对数组内容的修改都会影响到对方。
 
 接下来，我们再来看一个数据操作 append() 的示例
@@ -40,7 +42,9 @@ a = append(a, 1)
 a[2] = 42
 ```
 上面这段代码中，把a[1:16]的切片赋值给到了b，此时，a和b的内存空间是共享的，然后，对a做了一个append()的操作，这个操作会让a重新分配内存，导致a和b不再共享，如下图所示
+
 ![2](img/goProgrammingMode/2.png)
+
 从上图可以看到append()操作让a的容量变成了64，而长度是33。这里需要注意以下--append()函数在cap不够用的时候就会重新分配内存以扩大容量，而如果够用的时候不会重新分配内存。
 
 ## 接口完整性检查
@@ -601,3 +605,405 @@ func (c *StringContainer) Get() string {
 - Generic – https://github.com/taylorchu/generic
 - GenGen – https://github.com/joeshaw/gengen
 - Gen – https://github.com/clipperhouse/gen
+
+# 修饰器
+## 简单示例
+```go
+package main
+import "fmt"
+func decorator(f func(s string)) func(s string){
+    return func(s string){
+        fmt.Println("Started")
+        f(s)
+        fmt.Println("Done")
+    }
+}
+
+func Hello(s string){
+    fmt.Println(s)
+}
+
+func main(){
+    decorator(Hello)("Hello,World!")
+}
+```
+
+我们动用了一个高阶函数decoratoe()，在调用的时候，先把Hello()函数传进去，然后返回一个匿名函数，这个匿名函数中除了运行自己的代码，也调用了被传入的Hello()函数。
+
+```go
+package main
+
+import (
+    "fmt"
+    "reflect"
+    "runtime"
+    "time"
+)
+
+type SumFunc func(int64,int64) int64
+
+func getFuncionName(i interface{}) string{
+    return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+}
+func timedSumFunc(f SumFunc) SumFunc{
+    return func(start,end int64) int64{
+        defer func(t time.Time){
+            fmt.Printf("--- Time Elapsed (%s): %v ---\n", 
+                getFunctionName(f), time.Since(t))
+        }(time.Now())
+        return f(start,end)
+    }
+}
+
+func Sum1(start,end int64) int64{
+    var sum int64
+    sum = 0
+    if start > end{
+        start,end = end,start
+    }
+    for i := start;i <= end;i++{
+        sum += 1
+    }
+    return sum
+}
+
+func Sum2(start,end int64) int64{
+    if start > end{
+        start,end = end,start
+    }
+    return (end - start + 1) * (end + start) / 2
+}
+
+func main(){
+    sum1 := timedSumFunc(Sum1)
+    sum2 := timedSumFunc(Sum2)
+
+    fmt.Printf("%d, %d\n", sum1(-10000, 10000000), sum2(-10000, 10000000))
+}
+```
+- 有两个Sum函数，Sum1()函数就是简单的做个循环。Sum2()函数动用了数据公式
+- 代码中使用了go的反射机制来获取函数名
+- 修饰器函数是timedSumFunc()
+
+## HTTP相关示例
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "net/http"
+    "strings"
+)
+
+func WithServerHeader(h http.HandlerFunc) http.HandlerFunc{
+    return func(w http.ResponseWriter,r *http.Request){
+        log.Println("WithServerHeader()")
+        w.Header().Set("Server","HelloServer v0.0.1")
+        h(w,r)
+    }
+}
+
+func hello(w http.ResponseWriter,r *http.Request){
+    log.Printf("Recieved Request %s from %s\n", r.URL.Path, r.RemoteAddr)
+    fmt.Fprintf(w, "Hello, World! "+r.URL.Path)
+}
+
+func main(){
+    http.HandleFunc("/v1/hello",WithServerHeader(hello))
+    err := http.ListenAndServe(":8080",nil)
+    if err != nil{
+        log.Fatal("ListenAndServe:",err)
+    }
+}
+
+```
+
+```go
+package main
+import (
+    "fmt"
+    "log"
+    "net/http"
+    "strings"
+)
+func WithServerHeader(h http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        log.Println("--->WithServerHeader()")
+        w.Header().Set("Server", "HelloServer v0.0.1")
+        h(w, r)
+    }
+}
+func WithAuthCookie(h http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        log.Println("--->WithAuthCookie()")
+        cookie := &http.Cookie{Name: "Auth", Value: "Pass", Path: "/"}
+        http.SetCookie(w, cookie)
+        h(w, r)
+    }
+}
+func WithBasicAuth(h http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        log.Println("--->WithBasicAuth()")
+        cookie, err := r.Cookie("Auth")
+        if err != nil || cookie.Value != "Pass" {
+            w.WriteHeader(http.StatusForbidden)
+            return
+        }
+        h(w, r)
+    }
+}
+func WithDebugLog(h http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        log.Println("--->WithDebugLog")
+        r.ParseForm()
+        log.Println(r.Form)
+        log.Println("path", r.URL.Path)
+        log.Println("scheme", r.URL.Scheme)
+        log.Println(r.Form["url_long"])
+        for k, v := range r.Form {
+            log.Println("key:", k)
+            log.Println("val:", strings.Join(v, ""))
+        }
+        h(w, r)
+    }
+}
+func hello(w http.ResponseWriter, r *http.Request) {
+    log.Printf("Recieved Request %s from %s\n", r.URL.Path, r.RemoteAddr)
+    fmt.Fprintf(w, "Hello, World! "+r.URL.Path)
+}
+func main() {
+    http.HandleFunc("/v1/hello", WithServerHeader(WithAuthCookie(hello)))
+    http.HandleFunc("/v2/hello", WithServerHeader(WithBasicAuth(hello)))
+    http.HandleFunc("/v3/hello", WithServerHeader(WithBasicAuth(WithDebugLog(hello))))
+    err := http.ListenAndServe(":8080", nil)
+    if err != nil {
+        log.Fatal("ListenAndServe: ", err)
+    }
+}
+```
+上面代码中使用到了修饰模式，WithServerHeader()函数就是一个Decorator，其传入一个http.HandlerFunc，然后返回一个改写的版本。
+
+### 多个修饰器的Pipeline
+如果需要decorator比较多的话，代码会比较难看了。下面重构以下，需要先写一个工具函数，用来遍历并调用各个decorator：
+```go
+type HttpHandlerDecorator func(http.HandlerFunc) http.HandlerFunc
+
+func Handler(h http.HandlerFunc,decors ..HttpHandlerDecorator)http.HandlerFunc{
+    for i := range decors{
+        d := decors[len(decors)-1-i]
+        h = d(h)
+    }
+    return h
+}
+
+http.HandleFunc("/v4/hello",Handler(hello,WithServerHeader,WithBasicAuth,WithDebugLog))
+```
+这样代码更易读了一些，pipeline的功能也就出来了。
+
+### 泛型修饰器
+```go
+func Decorator(decoPtr,fn interface{})(err error){
+    var decoratedFunc,targetFunc reflect.Value
+    decoratedFunc = reflect.ValueOf(decoPtr).Elem()
+    targetFunc = reflect.ValueOf(fn)
+
+    v := reflect.MakeFunc(targetFunc.Type(),
+            func(in []reflect.Value)(out []reflect.Value){
+                fmt.Println("before")
+                out = targetFunc.Call(in)
+                fmt.Println("after")
+                return
+            })
+    decoratedFunc.Set(v)
+    return
+}
+
+func foo(a,b,c int)int{
+    fmt.Printf("%d,%d,%d\n",a,b,c)
+    return a + b + c
+}
+
+func bar(a,b string) string{
+    fmt.Printf("%s,%s\n",a,b)
+    return a + b
+}
+
+type MyFoo func(int,int,int) int
+var myFoo MyFoo
+Decorator(&myFoo,foo)
+myFoo(1,2,3)
+```
+
+使用Decorator()时，还需要先声明一个函数签名，如果不想声明，也可以这样：
+```go
+mybar := bar
+Decorator(&mybar,bar)
+mybar("hello,","world!")
+```
+
+# Pipeline
+
+## HTTP处理
+在上节修饰器中有过一个示例用到Pipeline
+
+## Channel管理
+当然，如果要写出一个泛型的Pipeline框架并不容易，而使用Go Generation，但是别忘了go的goroutine和channel这两个神器完全可以被用来构造这种编程。
+
+### Channel转发函数
+首先需要一个echo()函数，其会把一个整型数组放到一个Channel中，并返回这个Channel：
+```go
+func echo(nums []int) <-chan int{
+    out := make(chan int)
+    go func(){
+        for _,n := range nums{
+            out <- n
+        }
+        close(out)
+    }()
+    return out
+}
+```
+
+### 平方函数
+```go
+func sq(in <-chan int) <-chan int{
+    out := make(chan int)
+    go func(){
+        for n := range in{
+            out <- n * n
+        }
+        close(out)
+    }()
+    return out
+}
+```
+
+### 过滤奇数函数
+```go
+func odd(in <-chan int) <-chan int{
+    out := make(chan int)
+    go func(){
+        for n := range in{
+            if n%2 != 0{
+                out <- in
+            }
+        }
+        close(out)
+    }()
+    return out
+}
+```
+
+### 求和函数
+```go
+func sum(in <-chan int) <-chan int{
+    out := make(chan int)
+    go func(){
+        var sum = 0
+        for n := range in{
+            sum += n
+        }
+        out <- sum
+        close(out)
+    }()
+    return out
+}
+```
+可以通过之前的Map/Reduce编程模式或是go generation的方式来合并以下
+```go
+var nums = []int{1,2,3,4,5,6,7,8,9}
+for n := range sum(sq(odd(echo(nums)))){
+    fmt.Println(n)
+}
+```
+上面的代码类似于执行Unix/Linux命令：echo $nums | sq | sum
+如果不想有那么多的函数嵌套，可以使用一个代理函数来完成：
+```go
+type EchoFunc func ([]int)(<-chan int)
+type PipeFunc func (<-chan int)(<-chan int)
+func pipeline(nums []int,echo EchoFunc,pipeFns ...PipeFunc)<-chan int{
+    ch := echo(nums)
+    for i := range pipeFns{
+        ch = pipeFns[i](ch)
+    }
+    return ch
+}
+
+var nums = []int{1,2,3,4,5,6,7,8,9}
+for n := range pipeline(nums,gen,odd,sq,sum){
+    fmt.Println(n)
+}
+```
+
+### Fan in/out
+动用goroutine和channel还有一个好处，就是可以写出一对多，或多对一的pipeline，也就是Fan in/out。
+
+我们想通过并发的方式来对一个很长的数组中的质数进行求和运算，我们想先把数组分段求和，然后再把其集中起来。
+```go
+func makeRange(min,max int) []int{
+    a := make([]int,max-min+1)
+    for i := range a {
+        a[i] = min + i
+    }
+    return a 
+}
+func is_prime(value int) bool{
+    for i := 2;i <=int(math.Floor(float64(value) / 2));i++{
+        if value%i == 0{
+            return false
+        }
+    }
+    return value > 1
+}
+
+func prime(in <-chan int) <-chan int{
+    out := make(chan int)
+    go func(){
+        for n := range in{
+            if is_prime(n){
+                out <- n
+            }
+        }
+        close(out)
+    }()
+    return out
+}
+
+func merge(cs []<-chan int) <-chan int{
+    var wg sync.WaitGroup
+    out := make(chan int)
+
+    wg.Add(len(cs))
+    for _,c := range cs{
+        go func(c <-chan int){
+            for n := range c{
+                out <- n
+            }
+            wg.Done()
+        }(c)
+    }
+    go func(){
+        wg.Wait()
+        close(out)
+    }()
+    return out
+}
+
+func main(){
+    nums := makeRange(1,10000)
+    in := echo(nums)
+
+    const nProcess = 5
+    var chans [nProcess]<-chan int
+    for i := range chans{
+        chans[i] = sum(prime(in))
+    }
+
+    for n := range sum(merge(chans[:])){
+        fmt.Println(n)
+    }
+}
+```
+整个程序结构如下图所示：
+![3](img/goProgrammingMode/3.png)
