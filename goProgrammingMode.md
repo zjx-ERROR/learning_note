@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-02-25 10:17:38
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-02-25 16:46:02
+ * @LastEditTime: 2021-03-01 11:05:20
  * @FilePath: /learning_note/goProgrammingMode.md
  * @Description: 
 -->
@@ -81,3 +81,523 @@ var _ Shape = new(Square)
 - 对于在for-loop里的固定的正则表达式，一定使用regexp.Compile()编译正则表达式。性能提升两个数量级
 - 如果需要更高性能的协议，考虑使用protobuf或msgp而不是json，因为json的序列化和反序列化使用了反射
 - 在使用map的时候，使用整型的key会比字符串的要快，因为整型比较字符串比较快
+
+# 配置选项问题
+## Functional Options
+首先，定义一个函数类型：
+```go
+type Option func(*Server)
+```
+然后，我门可以使用函数式的方式定义一组如下的函数：
+```go
+func Protocol(p string) Option{
+    return func(s *Server){
+        s.Protocol = p
+    }
+}
+func Timeout(timeout time.Duration) Option{
+    return func(s *Server){
+        s.Timeout = timeout
+    }
+}
+func MaxConns(maxconns int) Option{
+    return func(s *Server){
+        s.MaxConns = maxconns
+    }
+}
+func TLS(tls *tls.Config) Option{
+    return func(s *Server){
+        s.TLS = tls
+    }
+}
+```
+上面这组代码传入一个参数，然后返回一个函数，返回的这个函数会设置自己的Server参数。
+```go
+func NewServer(addr string, port int, options ...func(*Server)) (*Server, error) {
+  srv := Server{
+    Addr:     addr,
+    Port:     port,
+    Protocol: "tcp",
+    Timeout:  30 * time.Second,
+    MaxConns: 1000,
+    TLS:      nil,
+  }
+  for _, option := range options {
+    option(&srv)
+  }
+  //...
+  return &srv, nil
+}
+```
+于是，在创建Server对象的时候，可以这样：
+```go
+s1, _ := NewServer("localhost", 1024)
+s2, _ := NewServer("localhost", 2048, Protocol("udp"))
+s3, _ := NewServer("0.0.0.0", 8080, Timeout(300*time.Second), MaxConns(1000))
+```
+
+# 委托和控制反转
+反转控制IoC-inversion of Control是一种软件设计的方法，其主要的思想是把控制逻辑与业务逻辑分离，不要在业务逻辑里写控制逻辑，这样会让溶质逻辑依赖业务逻辑。这样的编程方式可以有效的降低程序复杂度，并提升代码重用。
+## 嵌入和委托
+在Go语言中，可以很方便的把一个结构体嵌入到另一个结构体中：
+```go
+type Widget struct{
+    X,Y int
+}
+type Label struct{
+    Widget
+    Text string
+}
+
+label := Label{Widget{10,10},"State:"}
+label.X = 11
+label.Y = 12
+```
+有了这样的嵌入，就可以像UI组件一样在结构体的设计上进行层层分解。比如，可以新建两个结构体Button和ListBox：
+```go
+type Button struct {
+    Label // Embedding (delegation)
+}
+type ListBox struct {
+    Widget          // Embedding (delegation)
+    Texts  []string // Aggregation
+    Index  int      // Aggregation
+}
+```
+- 对于Lable来说，只有Painter，没有Cliker
+- 对于Button和ListBox来说，Painter和Cliker都有
+下面是一些实现：
+```go 
+func (label Label) Paint() {
+  fmt.Printf("%p:Label.Paint(%q)\n", &label, label.Text)
+}
+//因为这个接口可以通过 Label 的嵌入带到新的结构体，
+//所以，可以在 Button 中可以重载这个接口方法以
+func (button Button) Paint() { // Override
+    fmt.Printf("Button.Paint(%s)\n", button.Text)
+}
+func (button Button) Click() {
+    fmt.Printf("Button.Click(%s)\n", button.Text)
+}
+func (listBox ListBox) Paint() {
+    fmt.Printf("ListBox.Paint(%q)\n", listBox.Texts)
+}
+func (listBox ListBox) Click() {
+    fmt.Printf("ListBox.Click(%q)\n", listBox.Texts)
+}
+```
+Button.Paint()接口可以通过Label的嵌入带到新的结构体，如果Button.Paint()不实现的话，会调用Label.Paint()，所以，在Button中声明Paint()方法相当于Oerride。
+
+## 反转控制
+有一个存放整数的数据结构，如下所示：
+```go
+type IntSet struct{
+    data map[int]bool
+}
+func NewInSet() IntSet{
+    return IntSet{make(map[int]bool)}
+}
+func (set *IntSet) Add(x int){
+    set.data[x] = true
+}
+func (set *IntSet) Delete(x int){
+    delete(set.data,x)
+}
+func (set *IntSet) Contains(x int) bool{
+    return set.data[x]
+}
+```
+现在实现一个Undo的功能，我们可以把IntSet再包装一下变成UndoableIntSet：
+```go
+type UndoableIntSet struct{
+    IntSet
+    functions []func()
+}
+func NewUndoableIntSet() UndoableIntSet{
+    return UndoableIntSet{NewIntSet(),nil}
+}
+func (set *UndoableIntSet) Add(x int){
+    if !set.Contains(x){
+        set.data[x] = true
+        set.functions = append(set.functions,func(){set.Delete(x)})
+    }else{
+        set.functions = append(set.functions,nil)
+    }
+}
+
+func (set *UndoableIntSet) Delete(x int){
+    if set.Contains(x){
+        delete(set.data,x)
+        set.functions = append(set.functions,func(){set.Add(x)})
+    }else{
+        set.functions = append(set.functions,nil)
+    }
+}
+
+func (set *UndoableIntSet) Undo()error{
+    if len(set.functions) == 0{
+        return errors.New("No functions to undo")
+    }
+    index := len(set.functions) - 1
+    if functino := set.functions[index];function != nil{
+        function()
+        set.functions[index] = nil
+    }
+    set.functions = set.functions[:index]
+    return nil
+}
+```
+- 我们在UndoableIntSet中嵌入了IntSet，然后Override了它的Add()和Delete()方法
+- Contains()方法没有Override，所以被带到UndoableIntSet中
+- 在Override的Add()中，记录Delete操作
+- 在Override的Delete()中，记录Add操作
+- 在新加入Undo()中进行Undo操作
+
+通过这样的方式来为已有的代码扩展新的功能是一个很好的选择，这样，在重用原有代码功能和重新新的功能中达到一个平衡。但是，这种方式最大的问题是，Undo这个功能上是有问题的。因为加入大量跟IntSet相关的业务逻辑。
+
+## 反转依赖
+```go
+type Undo []func()
+func (undo *Undo) Add(function func()){
+    *undo = append(*undo,function)
+}
+
+func (undo *Undo) Undo()error{
+    functions := *undo
+    if len(functions) == 0{
+        return errors.New("No functions to undo")
+    }
+    index := len(functions) - 1
+    if function := functions[index];function != nil{
+        function()
+        functions[index] = nil
+    }
+    *undo = funcions[:index]
+    return nil
+}
+
+type IntSet struct{
+    data map[int]bool
+    undo Undo
+}
+func NewInSet() IntSet{
+    return IntSet{make(map[int]bool)}
+}
+func (set *IntSet) Undo()error{
+    return set.undo.Undo()
+}
+func (set *IntSet) Contains(x int) bool{
+    return set.data[x]
+}
+func (set *IntSet) Add(x int){
+    if set.Contains(x){
+        set.data[x] = true
+        set.undo.Add(func(){set.Delete(x)})
+    }else{
+        set.undo.Add(nil)
+    }
+    
+}
+func (set *IntSet) Delete(x int){
+    if set.Contains(x){
+        delete(set.data,x)
+        set.undo.Add(func(){set.Add(x)})
+    }else{
+        set.undo.Add(nil)
+    }
+}
+这个就是控制反转，不再由控制逻辑Undo来依赖业务逻辑IntSet，而是由业务逻辑Intet来依赖Undo。
+```
+
+# Map-Reduce
+
+```go
+func MapStrToStr(arr []string,fn func(s string) string) []string{
+    var newArray = []string{}
+    for _,it := range arr{
+        newArray = append(newArray,fn(it))
+    }
+    return newArray
+}
+func MapStrToInt(arr []string,fn func(s string) int) []int{
+    var newArray = []int{}
+    for _,it := range arr {
+        newArray = append(newArray,fn(it))
+    }
+    return newArray
+}
+```
+
+整个Map函数运行逻辑都很相似，函数体都是在遍历第一个参数的数组，然后调用第二个参数的函数，然后把其值组合成另一个数组返回。
+再来看看Reduce和Filter的函数是怎么样的：
+```go
+func Reduce(arr []string,fn func(s string) int) int{
+    sum := 0
+    for _,it := range arr{
+        sum += fn(it)
+    }
+    return sum
+}
+var list = []string{"Hao","Chen","MegaEase"}
+
+x := Reduce(list,func(s string) int{
+    return len(s)
+})
+fmt.Println("%v\n",x)
+
+func Filter(arr []int,fn func(n int) bool) []int{
+    var newArray = []int{}
+    for _,it := range arr{
+        if fn(it){
+            newArray = append(newArray,it)
+        }
+    }
+    return newArray
+}
+var intset = []int{1,2,3,4,5,6,7,8,9}
+out := Filter(intset,func(n int)bool{
+    return n%2 == 1
+})
+fmt.Println("%v\n",out)
+out = Filter(intset,func(n int)bool{
+    return n > 5
+})
+fmt.Println("%v\n",out)
+```
+通过上面的示例，你可能有一些明白，Map/Reduce/Filter只是一种控制逻辑，真正的业务逻辑是在传给他们的数据和那个函数来定义的。这是一个很经典的业务逻辑和控制逻辑分离解耦的编程模式。
+
+目前go的泛型只能用interface{}+reflect来完成，interface{}可以理解成c的void*，java中的Object，reflect是go的反射机制包，用于在运行时检查类型。下面是不作任何类型检查的泛型Map函数：
+```go
+func Map(data interface{},fn interface{}) []interface{}{
+    vfn := reflect.ValueOf(fn)
+    vdata := reflect.ValueOf(data)
+    result := make([]interface{},vdata.len())
+    for i := 0;i < vdata.len();i++{
+        result[i] = vfn.Call([]reflect.Value{vdata.Index(i)})[0].Interface()
+    }
+    return result
+}
+```
+- 通过reflect.ValueOf()来获得interface{}的值，其中一个是数据vdata，另一个是函数vfn
+- 通过vfn.Call()方法来调用函数，通过[]reflect.Value{vdata.Index(i)}来获得数据
+
+于是，不用类型的数据可以使用相同逻辑的Map()代码：
+```go
+square := func(x int) int{
+    return x * x
+}
+nums := []int{1,2,3,4}
+
+squared_arr := Map(nums)
+fmt.Println(squared_arr)
+upcase := func(s string) string{
+    return strings.ToUpper(s)
+}
+strs := []string{"HAO","Chen","MegaEase"}
+upstrs := Map(strs,upcase)
+fmt.Println(upstrs)
+```
+但是因为反射是运行时的事，所以，如果类型什么出问题的话，就会有运行时的错误。
+
+# go generation
+
+## go的类型检查
+因为go目前不支持真正的泛型，所以只能用interface{}这样的类似void*这种过渡泛型来玩，这就导致在实际过程中就需要进行类型检查。go的类型检查有两种技术，一种是Type Assert，一种是Reflection。
+
+## Type Assert
+一般是对某个变量进行(.type)的转型操作，其中返回两个值，variable,error，第一个返回值是被转换好的类型，第二个是如果不能转换类型，就会报错。
+
+例如，我们有一个通用类型的容器，可以进行Put(val)和Get()，注意其使用了interface{}作泛型：
+```go
+type Container []interface{}
+
+func(c *Container) Put(elem interface{}){
+    *c = append(*c,elem)
+}
+
+func(c *Container) Get() interface{}{
+    elem := (*c)[0]
+    *c = (*c)[1:]
+    return elem
+}
+
+intContainer := &Container{}
+intContainer.Put(7)
+intContainer.Put(65)
+
+elem,ok := intContainer.Get().(int)
+if !ok{
+    fmt.Println("Unable to read an int from intContainer")
+}
+fmt.Printf("assertExample: %d (%T)\n", elem, elem)
+```
+## Reflection
+对于反射，修改上面代码如下：
+```go
+type Container struct{
+    s reflect.Value
+}
+func NewContainer(t reflect.Type,size int) *Container{
+    if size <= 0{size=64}
+    return &Container{
+        s : reflect.MakeSlice(reflect.Sliceof(t),0,size)
+    }
+}
+func (c *Container)Put(val interface{}) error {
+    if reflect.ValueOf(val).Type() != c.s.Type().Elem(){
+        return fmt.Errorf("Put:cannot put a %T into a slice of %s",val,c.s.Type().Elem())
+    }
+    c.s = reflect.Append(c.s,reflect.ValueOf(val))
+    return nil
+}
+func (c *Container) Get(refval interface{}) error{
+    if reflect.ValueOf(refval).Kind() != reflect.Ptr ||
+        reflect.ValueOf(refval).Elem().Type() != c.s.Type().Elem(){
+            return fmt.Errorf("Get:needs %s but got %T",c.s.Type().Elem(),refval)
+        }
+        reflect.ValueOf(refval).Elem().Set(c.s.Index(0))
+        c.s = c.s.Slice(1,c.s.len())
+        return nil
+}
+
+f1 := 3.1415926
+f2 := 1.141421356237
+c := NewContainer(reflect.TypeOf(f1),16)
+
+if err := c.Put(f1);err != nil{
+    panic(err)
+}
+if err := c.Put(f2);err != nil{
+    panic(err)
+}
+g := 0.0
+if err := c.Get(&g);err != nil{
+    panic(err)
+}
+fmt.Printf("%v (%T)\n", g, g)
+fmt.Println(c.s.Index(0))
+```
+- 在NewContainer()会根据参数的类型初始化一个Slice
+- Put()会检查val是否和Slice的类型一致
+- Get()我们需要用一个入参的方式，因为我们没有办法返回reflect.Value或是interface{}，不然还要做Type Assert
+- 但是有类型检查，所以必然会有检查不对的时候，因此需要返回error
+
+## go generator
+要玩go的代码生成，你需要三件事：
+1、 一个函数模板，其中设置好相应的占位符
+2、 一个脚本，用于按规则来替换文本并生成新的代码
+3、 一行注释代码
+
+### 函数模板
+我们把之前的示例改称模板。取名为container.tmp.go放在./template/下
+```go
+package PACKAGE_NAME
+type GENERIC_NAMEContainer struct{
+    s []GENERIC_TYPE
+}
+func NewGENERIC_NAMEContainer()*GENERIC_NAMEContainer{
+    return &GENERIC_NAMEContainer{s:[]GENERIC_TYPE{}}
+}
+func(c *GENERIC_NAMEContainer)Put(val GENERIC_TYPE){
+    c.s = append(c.s, val)
+}
+func (c *GENERIC_NAMEContainer) Get() GENERIC_TYPE {
+    r := c.s[0]
+    c.s = c.s[1:]
+    return r
+}
+```
+可以看到函数模板中我们有如下占位符：
+- PACKAGE_NAME - 包名
+- GENERIC_NAME - 名字
+- GENERIC_TYPE - 实际的类型
+
+### 函数生成脚本
+有一个gen.sh的生成脚本：
+```sh
+#!/bin/bash
+
+set -e
+
+SRC_FILE=${1}
+PACKAGE=${2}
+TYPE=${3}
+DES=${4}
+PREFIX="$(tr '[:lower:]' '[:upper:]' <<< ${TYPE:0:1})${TYPE:1}"
+DES_FILE=$(echo ${TYPE}| tr '[:upper:]' '[:lower:]')_${DES}.go
+sed 's/PACKAGE_NAME/'"${PACKAGE}"'/g' ${SRC_FILE} | \
+    sed 's/GENERIC_TYPE/'"${TYPE}"'/g' | \
+    sed 's/GENERIC_NAME/'"${PREFIX}"'/g' > ${DES_FILE}
+```
+其需要4个参数：
+- 模板源文件
+- 包名
+- 世纪需要具体化的类型
+- 用于构造目标文件名的后缀
+然后会用sed命令去替换上面的函数模板，并生成到目标文件中。
+
+### 生成代码
+```go 
+//go:generate ./gen.sh ./template/container.tmp.go gen uint32 container
+func generateUint32Example() {
+    var u uint32 = 42
+    c := NewUint32Container()
+    c.Put(u)
+    v := c.Get()
+    fmt.Printf("generateExample: %d (%T)\n", v, v)
+}
+//go:generate ./gen.sh ./template/container.tmp.go gen string container
+func generateStringExample() {
+    var s string = "Hello"
+    c := NewStringContainer()
+    c.Put(s)
+    v := c.Get()
+    fmt.Printf("generateExample: %s (%T)\n", v, v)
+}
+```
+- 第一个注释是生成包名为gen类型为uint32目标文件名以container为后缀
+- 第二个注释是生成包名为gen类型为string目标文件名以container为后缀
+然后在工程目录直接执行go generate命令，就会生成如下两份代码：
+uint32_container.go
+```go
+package gen
+type Uint32Container struct {
+    s []uint32
+}
+func NewUint32Container() *Uint32Container {
+    return &Uint32Container{s: []uint32{}}
+}
+func (c *Uint32Container) Put(val uint32) {
+    c.s = append(c.s, val)
+}
+func (c *Uint32Container) Get() uint32 {
+    r := c.s[0]
+    c.s = c.s[1:]
+    return r
+}
+```
+string_container.go
+```go
+package gen
+type StringContainer struct {
+    s []string
+}
+func NewStringContainer() *StringContainer {
+    return &StringContainer{s: []string{}}
+}
+func (c *StringContainer) Put(val string) {
+    c.s = append(c.s, val)
+}
+func (c *StringContainer) Get() string {
+    r := c.s[0]
+    c.s = c.s[1:]
+    return r
+}
+```
+这两份代码可以让我们的代码完全编译通过，所付出的代价就是需要多执行一步 go generate 命令。
+### 第三方工具
+我们并不需要自己手写 gen.sh 这样的工具类，已经有很多第三方的已经写好的可以使用。下面是一个列表：
+- Genny –  https://github.com/cheekybits/genny
+- Generic – https://github.com/taylorchu/generic
+- GenGen – https://github.com/joeshaw/gengen
+- Gen – https://github.com/clipperhouse/gen
