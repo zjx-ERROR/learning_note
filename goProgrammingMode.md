@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-02-25 10:17:38
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-01 17:54:20
+ * @LastEditTime: 2021-03-02 10:22:33
  * @FilePath: /learning_note/goProgrammingMode.md
  * @Description: 
 -->
@@ -92,7 +92,7 @@ var _ Shape = new(Square)
 ```go
 type Option func(*Server)
 ```
-然后，我门可以使用函数式的方式定义一组如下的函数：
+然后，我们可以使用函数式的方式定义一组如下的函数：
 ```go
 func Protocol(p string) Option{
     return func(s *Server){
@@ -392,7 +392,7 @@ square := func(x int) int{
 }
 nums := []int{1,2,3,4}
 
-squared_arr := Map(nums)
+squared_arr := Map(nums,square)
 fmt.Println(squared_arr)
 upcase := func(s string) string{
     return strings.ToUpper(s)
@@ -441,12 +441,14 @@ fmt.Printf("assertExample: %d (%T)\n", elem, elem)
 type Container struct{
     s reflect.Value
 }
+
 func NewContainer(t reflect.Type,size int) *Container{
     if size <= 0{size=64}
     return &Container{
         s : reflect.MakeSlice(reflect.Sliceof(t),0,size)
     }
 }
+
 func (c *Container)Put(val interface{}) error {
     if reflect.ValueOf(val).Type() != c.s.Type().Elem(){
         return fmt.Errorf("Put:cannot put a %T into a slice of %s",val,c.s.Type().Elem())
@@ -454,6 +456,7 @@ func (c *Container)Put(val interface{}) error {
     c.s = reflect.Append(c.s,reflect.ValueOf(val))
     return nil
 }
+
 func (c *Container) Get(refval interface{}) error{
     if reflect.ValueOf(refval).Kind() != reflect.Ptr ||
         reflect.ValueOf(refval).Elem().Type() != c.s.Type().Elem(){
