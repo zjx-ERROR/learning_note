@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-03-03 11:13:50
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-03 17:29:51
+ * @LastEditTime: 2021-03-03 18:00:19
  * @FilePath: /learning_note/redisDistribute.md
  * @Description: 
 -->
@@ -292,11 +292,35 @@ sentinel会向master发送心跳PING来确认master是否存活，如果master�
 - 返回-MASTERDOWN错误
 
 如果服务器返回除以上三种回复之外的其他回复，又或者在指定时间内没有回复PING命令，那么Sentinel认为服务器返回的回复无效(non-valid)。
+
 注意，一个服务器必须在master-down-after-milliseconds毫秒内，一直返回无效回复才会被Sentinel标记为主观下线。
+
 举个例子，如果master-down-after-milliseconds选项的值为30000毫秒（30秒），那么只要服务器能在每29秒之内返回至少一次有效回复，这个服务器就仍然会被认为是处于正常状态的。
+
 从主观下线状态切换到客观下线状态并没有使用严格的法定人数算法（strong qourum algrithm），而是使用了流言协议：如果Sentinel在给定的时间范围内，从其他Sentinel那里接收到了足够数量的主服务器下线报告，那么Sentinel就会将主服务器的状态从主观下线改变为客观下线。如果之后其他Sentinel不再报告主服务器已下线，那么客观下线状态就会被移除。
+
 有一点需要注意的是：客观下线条件只适用于主服务器：对于任何其他类型的Redis实例，Sentinel子阿将它们判断为下线前不需要进行协商，所以从服务器或者其它Sentinel永远不会达到客观下线条件。
+
 只要一个Sentinel发现某个主服务器进入客观下线状态，这个Sentinel就可能会被其它Sentinel推选出，并对失效的主服务器执行自动故障迁移操作。
+
+### Redis 分布式高可用方案：Redis Cluster
+
+#### 原理简介
+作为一个内存数据库，实现高可用是一个基本保障，当储存服务在可遇见的将来需要用作存储拓展时，分布式储存就是一个必须要考虑到的事情。例如部署一个中央redis储存服务，提供给集团下所有的子公司所有需要的系统使用，并且系统数量在不断的增加，此时在部署服务的时候，分布式储存结构几乎时必然的选择。
+
+Redis3.0版本之前，可以通过前面所说的Redis Sentinel来实现高可用(HA)，从3.0版本之后官方推出Redis Cluster，它的主要用途是实现数据分片(Data Sharding)，同时提供了完整的sharing、replication（复制机制仍使用原有机制，并且具备感知主备的能力）、failover解决方案，称为Redis Cluster，同样可以实现HA，是官方当前推荐的方案。
+
+在Redis Sentinel模式中，每个节点需要保存全量数据，冗余比较多，而在Redis Cluster模式中，每个分片只需要保存一部分的数据，对于内存数据库来说，还是要尽量的减少荣誉。子阿数据量太大的情况下，故障恢复需要较长时间，另外，内存的价格也是比较高的。
+
+Redis Cluster的具体实现细节是采用了Hash槽的概念，集群会预先分配16384个槽(slot)，并将这些槽分配给具体的服务节点，通过对key进行CRC16(key)%16384运算得到对应的槽是哪一个，从而将读写操作转发到该槽所对应的服务节点。当有新的节点加入或者移除的时候，再来迁移这些槽以及其相对应的数据。在这种设计之下，我们就可以很方便的进行动态扩容或缩容。
+
+当然，关于高可用的实现方案，也可以将Redis-Sentinel和Redis-Cluster两种模式结合起来使用，不过比较复杂，并不太推荐。
+
+下图展示了Redis Cluster分配key和slot的基本原理：
+
+![12](img/redisDistribute/12.webp)
+
+
 
 
 https://www.jianshu.com/p/21110d3130bc
