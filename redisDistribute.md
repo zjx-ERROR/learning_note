@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-03-03 11:13:50
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-03 18:00:19
+ * @LastEditTime: 2021-03-04 11:11:59
  * @FilePath: /learning_note/redisDistribute.md
  * @Description: 
 -->
@@ -320,7 +320,148 @@ Redis Cluster的具体实现细节是采用了Hash槽的概念，集群会预先
 
 ![12](img/redisDistribute/12.webp)
 
+一个典型的Redis Cluster分布式集群由多个Redis节点组成。不同节点组服务的数据无交集，每个节点对应数据sharding的一个分片。节点组内部分为主备2类，对应前面叙述的master和slave。两者数据准实时一致，通过异步化的主备复制机制保证。一个节点组有且仅有一个master，同时有0到多个slave。只有master对外提供写服务，读服务可由master/slave提供。如下所示：
 
+![13](img/redisDistribute/13.webp)
 
+上图中，key-value全集被分成5份，5个slot（实际上Redis Cluster有16384个slot，每个节点服务一段区间的slot，这里面仅仅举例）。A和B为master节点，对外提供写服务。分别负责1/2/3和4/5的slot。A/A1和B/B1/B2之间通过主备复制的方式同步数据。
 
-https://www.jianshu.com/p/21110d3130bc
+上述的5个节点，两两通过Redis Cluster Bus交互，相互交换如下信息：
+1. 数据分片(slot)和节点的对应关系
+2. 集群中每个节点可用状态
+3. 集群结构发生变更时，通过一定的协议对配置信息达成一致。数据分片的迁移、主备切换、单点master的发现和其发生主备关系变更等，都会导致集群结构变化
+4. publish/subscribe（发布/订阅）功能，在Cluster版内部实现所需要交互的信息
+
+Redis Cluster Bus通过单独的端口进行连接，由于Bus是节点间的内部通信机制，交互的是字节序列化信息。相对Client的字符序列化来说，效率较高。
+
+Redis Cluster是一个去中心化的分布是实现方案，客户端和集群中任一节点连接，然后通过后面的交互流程，逐渐得到全局的数据分片映射关系
+
+#### 部署实例
+
+Redis Cluster集群至少需要三个master节点，本文将以单机多实例的方式部署3个主节点和3个从节点，6个节点实例分别使用不同的端口及工作目录
+
+1. 为每个redis节点分别创建工作目录
+
+在redis安装目录下新建目录redis-cluster，并在该目录下再新建6个子目录，此时目录结构如下图所示：
+
+![14](img/redisDistribute/14.webp)
+
+2. 修改配置
+
+```
+#开启后台运行
+daemonize yes
+#工作端口
+port 7000
+#绑定机器的内网IP或者公网IP,一定要设置，不要用 127.0.0.1
+bind 172.27.0.8  
+#指定工作目录，rdb,aof持久化文件将会放在该目录下，不同实例一定要配置不同的工作目录
+dir /usr/local/redis-cluster/7000/
+#启用集群模式
+cluster-enabled yes 
+#生成的集群配置文件名称，集群搭建成功后会自动生成，在工作目录下
+cluster-config-file nodes-7000.conf 
+#节点宕机发现时间，可以理解为主节点宕机后从节点升级为主节点时间
+cluster-node-timeout 5000 
+#开启AOF模式
+appendonly yes 
+#pid file所在目录
+pidfile /var/run/redis_8001.pid 
+```
+
+3. 按照上面的样例将配置文件复制到另5个目录下，并对port、dir、cluster-config-file三个属性做对应修改，这里就不一一列举了。
+
+4. 安装Ruby和RubyGems
+
+由于创建redis cluster需要用到redis-trib命令，而这个命令依赖Ruby和RubyGems，因此需要安装以下。
+```
+[root@VM_0_15_centos redis-cluster]# yum install ruby
+[root@VM_0_15_centos redis-cluster]# yum install rubygems
+[root@VM_0_15_centos redis-cluster]# gem install redis --version 3.3.3
+```
+
+5. 分别启动6个节点
+
+```
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-server redis-cluster/7000/redis.conf
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-server redis-cluster/7001/redis.conf
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-server redis-cluster/8000/redis.conf
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-server redis-cluster/8001/redis.conf
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-server redis-cluster/9000/redis.conf
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-server redis-cluster/9001/redis.conf
+```
+
+6. 查看服务运行状态
+
+```
+[root@VM_0_15_centos redis-4.0.6]# ps -ef | grep redis
+root     20290     1  0 18:33 ?        00:00:02 ./src/redis-server *:8001 [cluster]
+root     20295     1  0 18:33 ?        00:00:02 ./src/redis-server *:8002 [cluster]
+root     20300     1  0 18:33 ?        00:00:02 ./src/redis-server *:8003 [cluster]
+root     20305     1  0 18:33 ?        00:00:02 ./src/redis-server *:8004 [cluster]
+root     20310     1  0 18:33 ?        00:00:02 ./src/redis-server *:8005 [cluster]
+root     20312     1  0 18:33 ?        00:00:02 ./src/redis-server *:8006 [cluster]
+root     22913 15679  0 19:31 pts/2    00:00:00 grep --color=auto redis
+```
+
+7. 创建 redis cluster
+
+```
+[root@VM_0_15_centos redis-4.0.6]# ./src/redis-trib.rb create --replicas 1 172.27.0.8:7000 172.27.0.8:7001 172.27.0.8:8000 172.27.0.8:8001 172.27.0.8:9000 172.27.0.8:9001
+```
+
+创建过程中会有部分需要确认的地方，按照提示输入即可，集群创建完毕后观察一下这个集群的节点状态
+
+```
+172.27.0.8:7000> cluster nodes
+068ac2afe1ade8b69b83226453fecc2b79cd93ae 172.27.0.8:7001@17001 slave 421ebe9e0a5ac6c811935ecd9dba83ef119dec17 0 1531008204920 4 connected
+784c727c83a5952d3714ac211021f909cc4dfee4 172.27.0.8:8001@18001 slave eb5d700e2f030c02fb1f30ba4420d0b4f7170d84 0 1531008203000 5 connected
+0537099e7cc7ab595c7aad5f0c96985251b85ec0 172.27.0.8:9001@19001 slave 79262341417df0a11eaf31e72bbf3e26f5f60ebf 0 1531008204419 6 connected
+421ebe9e0a5ac6c811935ecd9dba83ef119dec17 172.27.0.8:7000@17000 myself,master - 0 1531008204000 1 connected 0-5460
+eb5d700e2f030c02fb1f30ba4420d0b4f7170d84 172.27.0.8:8000@18000 master - 0 1531008203000 2 connected 5461-10922
+79262341417df0a11eaf31e72bbf3e26f5f60ebf 172.27.0.8:9000@19000 master - 0 1531008203419 3 connected 10923-16383
+```
+
+如上所示，一个3主3从的redis cluster分布式集群就搭建成功了，7000、8000、9000分别是三个master节点，7001、8001、9001为对应的slaver节点。
+
+其实如果你并不想管这么多配置而只是想在最快的速度内创建一个redis cluster用作测试或者其它用途，redis官方在redis安装目录的Utils目录下它哦共了一个create-cluster的脚本，如下图：
+
+![15](img/redisDistribute/15.webp)
+
+只要执行一下这个脚本就能自动创建一个cluster，进入到这个目录下，执行./create-cluster start，即可立即完成一个三主三从的redis cluster的搭建：
+
+![16](img/redisDistribute/16.webp)
+
+如下图所示就是直接使用这个脚本创建的redis cluster：
+
+![17](img/redisDistribute/17.webp)
+
+#### Tips
+
+1. 如果想重新创建集群，需要登陆到每个节点，执行flushdb，然后执行cluster reset，重启节点
+2. 如果要批量杀掉Redis进程，可以使用pkill redis-server命令
+3. 如果redis开启密码认证，则需要在redis.conf中增加属性：masterauth yourpassword，并且需要修改/usr/local/share/gems/redis-3.3.3/lib/redis，目录下的client.rb文件，将password属性设置为redis.conf中的require pass的值，不同操作系统client.rb的位置可能不一样，可以使用find / -name "clinet.rb"全盘查找一下
+
+```
+ DEFAULTS = {
+      :url => lambda { ENV["REDIS_URL"] },
+      :scheme => "redis",
+      :host => "127.0.0.1",
+      :port => 6379,
+      :path => nil,
+      :timeout => 5.0,
+      :password => "yourpassword",
+      :db => 0,
+      :driver => nil,
+      :id => nil,
+      :tcp_keepalive => 0,
+      :reconnect_attempts => 1,
+      :inherit_socket => false
+    }
+```
+
+4. Reids开启密码认证后，在集群操作时问题会比较多，因此在非特殊情况下不建议开启密码认证。可以搭配使用防火墙保证Redis的安全
+
+## 总结
+
+Redis服务的部署方案的选型大家根据自己项目的需求部署即可，一般来说redis sentinel就够用了，也就是目前用得最多的模式，但是redis3.0之后官方推出的redis-cluster虽然本质时用于实现数据分片和分布式存储，但是其也实现了redis sentinel的全部功能，有完全的HA能力，并且部署起来更简单，因此成为了官方推荐的HA方案，我个人也更加推荐redis cluster方案。
