@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-03-05 15:18:44
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-05 17:41:35
+ * @LastEditTime: 2021-03-08 15:48:26
  * @FilePath: /learning_note/sorting_algorithm.md
  * @Description: 
 -->
@@ -95,6 +95,115 @@ func SelectionSort(arr []int) []int {
 - 将新元素插入到该位置后，重复步骤2～5
 
 ![3.gif](img/sorting_algorithm/3.gif)
+
+## 代码实现
+
+```go
+func InsertionSort(arr []int) []int {
+	for i := 1; i < len(arr); i++ {
+		k := i
+		for j := i - 1; j >= 0; j-- {
+			if arr[k] < arr[j] {
+				arr[k], arr[j] = arr[j], arr[k]
+				k -= 1
+			} else {
+				break
+			}
+		}
+	}
+	return arr
+}
+```
+
+# 希尔排序(Shell Sort)
+
+第一个突破O(n<sup>2</sup>)的排序算法，是简单插入排序的改进版。它与插入排序的不同之处在于，它会优先比较距离较远的元素。希尔排序又叫缩小增量排序。
+
+## 算法描述
+
+- 将整个待排序的序列分割成若干子序列
+- 选择一个增量序列t1,t2,...,tk，其中ti>tj,tk=1
+- 按增量序列个数k，对序列进行k趟排序
+- 每趟排序，根据对应的增量ti，将待排序列分割成若干长度为m的子序列，分别对各子表进行直接插入排序。仅增量因子为1时，整个序列作为一个表来处理，表长度即为整个序列长度。
+
+![4.gif](img/sorting_algorithm/4.gif)
+
+## 代码实现
+
+```go
+func ShellSort(num []int) []int {
+	for i := len(num) / 2; i > 0; i /= 2 {
+		for j := i; j < len(num); j++ {
+			tmp := num[j]
+			for t := j - i; t >= 0; t -= i {
+				if tmp < num[t] {
+					num[t+i] = num[t]
+					num[t] = tmp
+				} else {
+					break
+				}
+			}
+		}
+	}
+	return num
+}
+```
+
+# 归并排序(Merge Sort)
+
+归并排序时建立再归并操作上的一种有效的排序算法。该算法时采用分治法的一个典型应用。将已有序的子序列合并，得到完全有序的序列；即先使每个子序列有序，再使子序列段间有序。若将两个有序表合并成一个有序表，称为2路归并。
+
+## 算法描述
+
+- 把长度为n的输入序列分成两个长度为n/2的子序列
+- 对这两个子序列分别采用归并排序
+- 将两个排序好的子序列合并成一个最终的排序序列
+
+![5.gif](img/sorting_algorithm/5.gif)
+
+## 代码实现
+
+```go
+func MergeSort(num []int) []int {
+	if len(num) < 2 {
+		return num
+	}
+	left := MergeSort(num[:len(num)/2])
+	right := MergeSort(num[len(num)/2:])
+	res := merge(left, right)
+	return res
+}
+
+func merge(left, right []int) []int {
+	res := make([]int, 0)
+	m, n := 0, 0
+	l, r := len(left), len(right)
+	for m < l && n < r {
+		if left[m] > right[n] {
+			res = append(res, right[n])
+			n++
+			continue
+		}
+		res = append(res, left[m])
+		m++
+	}
+	res = append(res, right[n:]...)
+	res = append(res, left[m:]...)
+	return res
+}
+```
+
+# 快速排序(Quick Sort)
+
+通过一趟排序将待排序分割成独立的两部分，其中一部分记录的关键字比另一部分的关键字都小，则可分别对这两部分记录进行排序，以达到整个序列有序。
+
+## 算法描述
+
+- 从数列中挑出一个元素，称为“基准”
+- 重新排序数列，所有元素比基准值小的放在基准前面，所有元素比基准值大的放在基准后面，在这个分区退出之后，该基准就处于数列的中间位置。这个称为分区操作
+- 递归地把小于基准值元素的子序列和大于基准值元素的子序列排序
+
+![6.gif](img/sorting_algorithm/6.gif)
 
 ## 代码实现
 
