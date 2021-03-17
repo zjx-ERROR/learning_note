@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-03-05 15:18:44
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-12 17:05:48
+ * @LastEditTime: 2021-03-15 09:15:04
  * @FilePath: /learning_note/sorting_algorithm.md
  * @Description: 
 -->
@@ -127,21 +127,17 @@ func InsertionSort(arr []int) {
 ## 代码实现
 
 ```go
-func ShellSort(num []int) []int {
-	for i := len(num) / 2; i > 0; i /= 2 {
-		for j := i; j < len(num); j++ {
-			tmp := num[j]
-			for t := j - i; t >= 0; t -= i {
-				if tmp < num[t] {
-					num[t+i] = num[t]
-					num[t] = tmp
-				} else {
-					break
-				}
+func ShellSort(arr []int) {
+	if len(arr) < 2 {
+		return
+	}
+	for k := len(arr) / 2; k > 0; k /= 2 {
+		for i := 0; i <= len(arr)-1-k; i++ {
+			if arr[i] > arr[k+i] {
+				arr[i], arr[i+k] = arr[i+k], arr[i]
 			}
 		}
 	}
-	return num
 }
 ```
 
