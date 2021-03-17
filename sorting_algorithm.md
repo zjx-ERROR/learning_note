@@ -2,7 +2,7 @@
  * @Author: zhangjiaxi
  * @Date: 2021-03-05 15:18:44
  * @LastEditors: zhangjiaxi
- * @LastEditTime: 2021-03-15 09:15:04
+ * @LastEditTime: 2021-03-17 14:26:46
  * @FilePath: /learning_note/sorting_algorithm.md
  * @Description: 
 -->
@@ -245,20 +245,18 @@ func QuickSort(arr []int, start, end int) {
 
 ```go
 func HeapSort(arr []int, low int) {
-	tmp := low / 2
-	for i := tmp; i >= 0; i-- {
+	for i := low / 2; i >= 0; i-- {
 		if 2*i+1 <= low && arr[2*i+1] > arr[i] {
-			arr[i], arr[2*i+1] = arr[2*i+1], arr[i]
+			arr[2*i+1], arr[i] = arr[i], arr[2*i+1]
 		}
 		if 2*i+2 <= low && arr[2*i+2] > arr[i] {
-			arr[i], arr[2*i+2] = arr[2*i+2], arr[i]
+			arr[2*i+2], arr[i] = arr[i], arr[2*i+2]
 		}
 	}
 	arr[0], arr[low] = arr[low], arr[0]
 	if low > 1 {
 		HeapSort(arr, low-1)
 	}
-
 }
 ```
 
