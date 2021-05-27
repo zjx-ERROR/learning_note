@@ -196,3 +196,21 @@ services:
 
 #### docker-compose build #重新构建镜像
 #### docker-compose up -d --build #运行前，重新构建
+
+
+## 如何从容器获取宿主机ip
+通过虚拟网桥ip用ssh链接宿主机，执行ip route get命令堆docker宿主机ip进行获取，附python代码
+```python
+import paramiko
+s = paramiko.SSHClinet()
+s.load_system_host_keys()
+ssh_name = "root"
+ssh_password = "root"
+ssh_port = 22
+docker_ip = "172.17.0.1"
+s.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+s.connect(docker_ip,ssh_port,ssh_name,ssh_password,timeout=5)
+stdin,stdout,stderr = s.exec_command("ip route get 8.8.8.8|awk '{print $7}'")
+ip = stdout.read().decode("utf-8")
+print("宿主机ip：",ip)
+```
